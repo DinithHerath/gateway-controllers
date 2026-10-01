@@ -61,10 +61,10 @@ Parameters are nested under `request` and `response` objects to configure each p
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `request.enabled` | boolean | No | `true` | Enables content safety checks on incoming requests. |
-| `request.jsonPath` | string | No | `$.messages[-1].content` | JSONPath expression used to extract the user message from the JSON request body. Non-JSON bodies and requests where the path does not resolve to a string are passed through unchanged. |
+| `request.jsonPath` | string | No | `$.messages[-1].content` | JSONPath expression used to extract the text to check from the JSON request body. It may select a string, an object or an array, and a `*` segment fans out over an object's values or an array's items (for example `$.questions.*.instructions`); every string inside the selection is checked. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `request.passthroughOnError` is `true`. |
 | `request.blockStatusCode` | integer | No | `400` | HTTP status code returned when a request is blocked. Must be in the range `400`–`599`. |
 | `request.categories` | object | No | all enabled | Per-category boolean toggles. When omitted, all 23 categories are blocked. When provided, only categories set to `true` are blocked; categories set to `false` are passed through even if the model flags them. |
-| `request.passthroughOnError` | boolean | No | `false` | When `true`, allows the request to proceed if the NeMo Guard API call fails (fail-open). When `false`, a `503` is returned on API errors (fail-closed). |
+| `request.passthroughOnError` | boolean | No | `false` | When `true`, allows the request to proceed when it cannot be checked: the NeMo Guard API call fails, the body is not JSON, or `request.jsonPath` does not resolve (fail-open). When `false`, API errors return `503` and uncheckable requests `422` (fail-closed). |
 | `request.showAssessment` | boolean | No | `false` | When `true`, includes the detected safety category codes in the blocked-request error response body. |
 
 #### Response Phase (`response`)
@@ -72,9 +72,9 @@ Parameters are nested under `request` and `response` objects to configure each p
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `response.enabled` | boolean | No | `false` | Enables content safety checks on upstream responses before they are delivered to the client. |
-| `response.jsonPath` | string | No | `$.choices[0].message.content` | JSONPath expression used to extract the assistant reply from the response body. |
+| `response.jsonPath` | string | No | `$.choices[0].message.content` | JSONPath expression used to extract the assistant reply from the response body. Accepts the same forms as `request.jsonPath`. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `response.passthroughOnError` is `true`. |
 | `response.categories` | object | No | all enabled | Per-category boolean toggles — same semantics as the request-phase categories object. |
-| `response.passthroughOnError` | boolean | No | `false` | When `true`, allows the response to proceed if the NeMo Guard API call fails (fail-open). When `false`, a `503` is returned on API errors (fail-closed). |
+| `response.passthroughOnError` | boolean | No | `false` | When `true`, allows the response to proceed when it cannot be checked: the NeMo Guard API call fails, the body is not JSON, or `response.jsonPath` does not resolve (fail-open). When `false`, API errors return `503` and uncheckable responses `422` (fail-closed). |
 | `response.showAssessment` | boolean | No | `false` | When `true`, includes the detected safety category codes in the replaced-response error body. |
 
 #### Safety Categories

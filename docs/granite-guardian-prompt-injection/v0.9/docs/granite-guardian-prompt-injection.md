@@ -52,11 +52,11 @@ granite_guardian_timeout = 10
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `jsonPath` | string | No | `$.messages[-1].content` | JSONPath expression used to extract the user message from the JSON request body. Non-JSON bodies and requests where the path does not resolve to a string are passed through unchanged. |
+| `jsonPath` | string | No | `$.messages[-1].content` | JSONPath expression used to extract the text to check from the JSON request body. It may select a string, an object or an array, and a `*` segment fans out over an object's values or an array's items (for example `$.questions.*.instructions`); every string inside the selection is checked. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `passthroughOnError` is `true`. |
 | `riskNames` | array of strings | No | `["jailbreak", "prompt_injection"]` | Granite Guardian risk categories to evaluate. The request is blocked when any category returns a positive verdict. Supported values include `jailbreak`, `prompt_injection`, `violence`, `sexual_content`, `profanity`, and `unethical_behavior`. |
 | `blockStatusCode` | integer | No | `400` | HTTP status code returned to the client when a request is blocked. Must be in the range `400`–`599`. |
 | `threshold` | number | No | `0.5` | Minimum model confidence (0.0–1.0) required to block a request. The model's log-probability for its verdict token is converted to a probability and compared against this value. Increase to reduce false positives. Set to `0.0` to block on any positive verdict regardless of confidence. |
-| `passthroughOnError` | boolean | No | `false` | When `true`, allows the request to proceed if the Granite Guardian API call fails (fail-open). When `false`, a `503` is returned on API errors (fail-closed). |
+| `passthroughOnError` | boolean | No | `false` | When `true`, allows the request to proceed when it cannot be checked: the Granite Guardian API call fails, the body is not JSON, or `jsonPath` does not resolve (fail-open). When `false`, API errors return `503` and uncheckable requests `422` (fail-closed). |
 | `showAssessment` | boolean | No | `false` | When `true`, includes the risk name and raw model verdict in the block response body. |
 
 #### JSONPath Targeting

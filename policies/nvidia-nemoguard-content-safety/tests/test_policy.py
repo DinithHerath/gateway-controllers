@@ -319,14 +319,77 @@ class NemoGuardPolicyTest(unittest.TestCase):
         ctx = request_context({"messages": [{"content": "hello"}]}, present=False)
         self.assertIsNone(instance.on_request_body(None, ctx, {}))
 
-    def test_request_returns_none_when_body_is_not_valid_json(self) -> None:
+    def test_request_blocks_when_body_is_not_valid_json(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe"))
         instance = self._make_policy()
-        self.assertIsNone(instance.on_request_body(None, request_context(b"not json"), {}))
+        result = instance.on_request_body(None, request_context(b"not json"), {})
+        self.assert_not_inspected(result, "REQUEST")
+        self.assertEqual([], FakeRequests.post_calls)
 
-    def test_request_returns_none_when_jsonpath_resolves_to_non_string(self) -> None:
+    def test_request_passes_invalid_json_with_passthrough_flag(self) -> None:
+        instance = self._make_policy()
+        result = instance.on_request_body(
+            None, request_context(b"not json"), {"request": {"passthroughOnError": True}}
+        )
+        self.assertIsNone(result)
+
+    def test_request_blocks_when_jsonpath_does_not_resolve(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe"))
+        instance = self._make_policy()
+        ctx = request_context({"state": "Help! My payouts have been failing."})
+        result = instance.on_request_body(None, ctx, {})
+        self.assert_not_inspected(result, "REQUEST")
+        self.assertEqual([], FakeRequests.post_calls)
+
+    def test_request_passes_unresolved_jsonpath_with_passthrough_flag(self) -> None:
+        instance = self._make_policy()
+        ctx = request_context({"state": "Help!"})
+        self.assertIsNone(instance.on_request_body(None, ctx, {"request": {"passthroughOnError": True}}))
+
+    def test_request_inspects_numeric_value(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe"))
         instance = self._make_policy()
         ctx = request_context({"messages": [{"content": 42}]})
         self.assertIsNone(instance.on_request_body(None, ctx, {}))
+        self.assertIn("42", json.dumps(FakeRequests.post_calls[0]["json"]))
+
+    def test_request_inspects_every_field_of_object_state(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("unsafe", categories="Violence"))
+        instance = self._make_policy()
+        ctx = request_context({"state": {"ticket": "hello", "notes": "violent text"}})
+        result = instance.on_request_body(None, ctx, {"request": {"jsonPath": "$.state"}})
+        self.assertIsInstance(result, ImmediateResponse)
+        sent = json.dumps(FakeRequests.post_calls[0]["json"])
+        self.assertIn("hello", sent)
+        self.assertIn("violent text", sent)
+
+    def test_request_inspects_wildcard_matches(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe"))
+        instance = self._make_policy()
+        ctx = request_context({"questions": {
+            "a": {"type": "noul", "instructions": "first question"},
+            "b": {"type": "noul", "instructions": "second question"},
+        }})
+        result = instance.on_request_body(None, ctx, {"request": {"jsonPath": "$.questions.*.instructions"}})
+        self.assertIsNone(result)
+        sent = json.dumps(FakeRequests.post_calls[0]["json"])
+        self.assertIn("first question", sent)
+        self.assertIn("second question", sent)
+
+    def test_request_passes_json_null_without_calling_guard(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe"))
+        instance = self._make_policy()
+        ctx = request_context({"messages": [{"role": "assistant", "content": None}]})
+        self.assertIsNone(instance.on_request_body(None, ctx, {}))
+        self.assertEqual([], FakeRequests.post_calls)
+
+    def assert_not_inspected(self, result, direction: str) -> None:
+        self.assertIsInstance(result, ImmediateResponse)
+        self.assertEqual(422, result.status_code)
+        body = json.loads(result.body)
+        self.assertEqual("NVIDIA_NEMOGUARD_CONTENT_SAFETY", body["type"])
+        self.assertEqual("CONTENT_NOT_INSPECTED", body["message"]["action"])
+        self.assertEqual(direction, body["message"]["direction"])
 
     def test_request_returns_none_when_request_disabled(self) -> None:
         instance = self._make_policy()
@@ -481,15 +544,37 @@ class NemoGuardPolicyTest(unittest.TestCase):
         instance = self._make_policy()
         self.assertIsNone(instance.on_response_body(None, response_context(None), {"response": {"enabled": True}}))
 
-    def test_response_returns_none_when_body_is_not_valid_json(self) -> None:
+    def test_response_blocks_when_body_is_not_valid_json(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe"))
         instance = self._make_policy()
         ctx = response_context(b"not json")
-        self.assertIsNone(instance.on_response_body(None, ctx, {"response": {"enabled": True}}))
+        result = instance.on_response_body(None, ctx, {"response": {"enabled": True}})
+        self.assert_not_inspected(result, "RESPONSE")
 
-    def test_response_returns_none_when_jsonpath_resolves_to_non_string(self) -> None:
+    def test_response_passes_invalid_json_with_passthrough_flag(self) -> None:
         instance = self._make_policy()
-        ctx = response_context({"choices": [{"message": {"content": 42}}]})
+        ctx = response_context(b"not json")
+        result = instance.on_response_body(
+            None, ctx, {"response": {"enabled": True, "passthroughOnError": True}}
+        )
+        self.assertIsNone(result)
+
+    def test_response_blocks_when_jsonpath_does_not_resolve(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe"))
+        instance = self._make_policy()
+        ctx = response_context({"answers": {"is_urgent": {"type": "noul", "noul": 0.95}}})
+        result = instance.on_response_body(None, ctx, {"response": {"enabled": True}})
+        self.assert_not_inspected(result, "RESPONSE")
+
+    def test_response_inspects_numeric_value(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe", response_safety="safe"))
+        instance = self._make_policy()
+        ctx = response_context(
+            response_payload={"choices": [{"message": {"content": 42}}]},
+            request_payload={"messages": [{"role": "user", "content": "question"}]},
+        )
         self.assertIsNone(instance.on_response_body(None, ctx, {"response": {"enabled": True}}))
+        self.assertIn("42", json.dumps(FakeRequests.post_calls[0]["json"]))
 
     # --- response blocking ---
 
