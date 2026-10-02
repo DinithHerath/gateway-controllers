@@ -40,8 +40,9 @@ parameters:
             JSONPath expression used to extract the text to check from the
             request body. It may select a string, an object or an array, and a
             "*" segment fans out over an object's values or an array's items
-            (for example "$.questions.*.instructions"); every string inside
-            the selection is checked. A body that is not JSON, or a path that
+            (for example "$.questions.*.instructions"); every string, number
+            and boolean inside the selection is joined with newlines (object
+            keys in sorted order) and checked. A body that is not JSON, or a path that
             does not resolve, is rejected with a 422 unless passthroughOnError
             is true.
           default: "$.messages[-1].content"
@@ -212,7 +213,11 @@ parameters:
             JSONPath expression used to extract the assistant reply from the
             response body. Accepts the same forms as the request jsonPath. A
             body that is not JSON, or a path that does not resolve, is rejected
-            with a 422 unless passthroughOnError is true.
+            with a 422 unless passthroughOnError is true. The reply is checked
+            together with the user message that request.jsonPath selects, so a
+            request body that is not JSON, or a request path that selects no
+            text, also rejects the response with a 422 unless
+            passthroughOnError is true.
           default: "$.choices[0].message.content"
         categories:
           type: object
@@ -341,9 +346,10 @@ parameters:
           x-wso2-policy-advanced-param: true
           description: |
             When true, allows the response to proceed when it cannot be
-            checked: the NeMo Guard API call fails, the body is not JSON, or
-            jsonPath does not resolve (fail-open). When false (default), API
-            errors return a 503 and uncheckable responses a 422 (fail-closed).
+            checked: the NeMo Guard API call fails, the body is not JSON,
+            jsonPath does not resolve, or the request text used as context
+            cannot be resolved (fail-open). When false (default), API errors
+            return a 503 and uncheckable responses a 422 (fail-closed).
           default: false
         showAssessment:
           type: boolean

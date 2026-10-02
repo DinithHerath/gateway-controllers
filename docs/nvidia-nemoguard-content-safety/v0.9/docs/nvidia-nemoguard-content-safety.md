@@ -20,7 +20,7 @@ Use this policy when you need to screen both the user input and the LLM output f
 - Blocks all categories by default when no category filter is configured
 - Unsafe requests are rejected with a configurable HTTP status code (400–599 range)
 - Unsafe responses are replaced with a sanitised 200 error body (preserves HTTP contract with the client)
-- When checking responses, includes the original user message as conversation context for the model
+- When checking responses, includes the original user message as conversation context for the model (required: a response whose request text cannot be resolved is not inspected)
 - Optional assessment details in the block response (detected safety category codes)
 - Fail-closed by default on inference service errors; configurable to fail-open
 - Passes through requests unchanged when the body is not JSON, the JSONPath target is missing, or the body is absent
@@ -61,7 +61,7 @@ Parameters are nested under `request` and `response` objects to configure each p
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `request.enabled` | boolean | No | `true` | Enables content safety checks on incoming requests. |
-| `request.jsonPath` | string | No | `$.messages[-1].content` | JSONPath expression used to extract the text to check from the JSON request body. It may select a string, an object or an array, and a `*` segment fans out over an object's values or an array's items (for example `$.questions.*.instructions`); every string inside the selection is checked. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `request.passthroughOnError` is `true`. |
+| `request.jsonPath` | string | No | `$.messages[-1].content` | JSONPath expression used to extract the text to check from the JSON request body. It may select a string, an object or an array, and a `*` segment fans out over an object's values or an array's items (for example `$.questions.*.instructions`); every string, number and boolean inside the selection is joined with newlines (object keys in sorted order) and checked. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `request.passthroughOnError` is `true`. |
 | `request.blockStatusCode` | integer | No | `400` | HTTP status code returned when a request is blocked. Must be in the range `400`–`599`. |
 | `request.categories` | object | No | all enabled | Per-category boolean toggles. When omitted, all 23 categories are blocked. When provided, only categories set to `true` are blocked; categories set to `false` are passed through even if the model flags them. |
 | `request.passthroughOnError` | boolean | No | `false` | When `true`, allows the request to proceed when it cannot be checked: the NeMo Guard API call fails, the body is not JSON, or `request.jsonPath` does not resolve (fail-open). When `false`, API errors return `503` and uncheckable requests `422` (fail-closed). |
@@ -72,9 +72,9 @@ Parameters are nested under `request` and `response` objects to configure each p
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `response.enabled` | boolean | No | `false` | Enables content safety checks on upstream responses before they are delivered to the client. |
-| `response.jsonPath` | string | No | `$.choices[0].message.content` | JSONPath expression used to extract the assistant reply from the response body. Accepts the same forms as `request.jsonPath`. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `response.passthroughOnError` is `true`. |
+| `response.jsonPath` | string | No | `$.choices[0].message.content` | JSONPath expression used to extract the assistant reply from the response body. Accepts the same forms as `request.jsonPath`. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `response.passthroughOnError` is `true`. The reply is checked together with the user message that `request.jsonPath` selects from the request, so that path must resolve too: if the request body is not JSON or `request.jsonPath` selects no text, the response is rejected with `422` unless `response.passthroughOnError` is `true`. |
 | `response.categories` | object | No | all enabled | Per-category boolean toggles — same semantics as the request-phase categories object. |
-| `response.passthroughOnError` | boolean | No | `false` | When `true`, allows the response to proceed when it cannot be checked: the NeMo Guard API call fails, the body is not JSON, or `response.jsonPath` does not resolve (fail-open). When `false`, API errors return `503` and uncheckable responses `422` (fail-closed). |
+| `response.passthroughOnError` | boolean | No | `false` | When `true`, allows the response to proceed when it cannot be checked: the NeMo Guard API call fails, the body is not JSON, `response.jsonPath` does not resolve, or the request text used as context cannot be resolved (fail-open). When `false`, API errors return `503` and uncheckable responses `422` (fail-closed). |
 | `response.showAssessment` | boolean | No | `false` | When `true`, includes the detected safety category codes in the replaced-response error body. |
 
 #### Safety Categories

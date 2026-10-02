@@ -52,7 +52,7 @@ granite_guardian_timeout = 10
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `jsonPath` | string | No | `$.messages[-1].content` | JSONPath expression used to extract the text to check from the JSON request body. It may select a string, an object or an array, and a `*` segment fans out over an object's values or an array's items (for example `$.questions.*.instructions`); every string inside the selection is checked. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `passthroughOnError` is `true`. |
+| `jsonPath` | string | No | `$.messages[-1].content` | JSONPath expression used to extract the text to check from the JSON request body. It may select a string, an object or an array, and a `*` segment fans out over an object's values or an array's items (for example `$.questions.*.instructions`); every string, number and boolean inside the selection is joined with newlines (object keys in sorted order) and checked. A non-JSON body, or a path that does not resolve, is rejected with `422` unless `passthroughOnError` is `true`. |
 | `riskNames` | array of strings | No | `["jailbreak", "prompt_injection"]` | Granite Guardian risk categories to evaluate. The request is blocked when any category returns a positive verdict. Supported values include `jailbreak`, `prompt_injection`, `violence`, `sexual_content`, `profanity`, and `unethical_behavior`. |
 | `blockStatusCode` | integer | No | `400` | HTTP status code returned to the client when a request is blocked. Must be in the range `400`–`599`. |
 | `threshold` | number | No | `0.5` | Minimum model confidence (0.0–1.0) required to block a request. The model's log-probability for its verdict token is converted to a probability and compared against this value. Increase to reduce false positives. Set to `0.0` to block on any positive verdict regardless of confidence. |
@@ -61,13 +61,15 @@ granite_guardian_timeout = 10
 
 #### JSONPath Targeting
 
-The `jsonPath` parameter uses simple dot-separated traversal and supports array indexing including negative indexes:
+The `jsonPath` parameter uses simple dot-separated traversal, supports array indexing including negative indexes, and accepts `*` to fan out over an object's values or an array's items:
 
 - `$.messages[-1].content` — last message in a chat completions array (default)
 - `$.messages[0].content` — first message
 - `$.prompt` — top-level string field
+- `$.state` — a structured field; every string, number and boolean inside it is checked
+- `$.questions.*.instructions` — the `instructions` of every entry in an object
 
-If `jsonPath` does not resolve to a string value, or if the request body is not valid JSON, the request passes through unchanged.
+If `jsonPath` does not resolve, or if the request body is not valid JSON, the request is rejected with `422` unless `passthroughOnError` is `true`.
 
 #### build.yaml Integration
 

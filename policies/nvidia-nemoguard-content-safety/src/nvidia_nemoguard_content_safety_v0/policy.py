@@ -226,25 +226,24 @@ class NemoGuardContentSafetyPolicy(RequestPolicy, ResponsePolicy):
         if not req_params.response.enabled:
             return _PASSTHROUGH_RESPONSE
 
-        if not (res_ctx.body and res_ctx.body.present and res_ctx.body.content):
+        res_body = res_ctx.response_body
+        if not (res_body and res_body.present and res_body.content):
             return _PASSTHROUGH_RESPONSE
 
-        messages: list[dict] = []
-
+        # NeMo Guard rates a response in the context of the user message that
+        # produced it, so the request text is required, not optional.
+        user_text = ""
+        user_text_missing = "request body is absent"
         if res_ctx.request_body and res_ctx.request_body.present and res_ctx.request_body.content:
-            req_json_path = req_params.request.json_path
             try:
                 req_data = json.loads(res_ctx.request_body.content)
-                # The request text is context for the response check only, so a
-                # request that does not resolve simply adds no user message.
-                user_text = _collect_text(_resolve_jsonpath(req_data, req_json_path))
-                if user_text:
-                    messages.append({"role": "user", "content": user_text})
+                user_text = _collect_text(_resolve_jsonpath(req_data, req_params.request.json_path))
+                user_text_missing = "request jsonPath did not resolve to any text"
             except (json.JSONDecodeError, UnicodeDecodeError):
-                pass
+                user_text_missing = "request body is not valid JSON"
 
         try:
-            res_data = json.loads(res_ctx.body.content)
+            res_data = json.loads(res_body.content)
         except (json.JSONDecodeError, UnicodeDecodeError):
             return _not_inspected(execution_ctx, "response", "body is not valid JSON", req_params.response.passthrough_on_error)
 
@@ -255,7 +254,13 @@ class NemoGuardContentSafetyPolicy(RequestPolicy, ResponsePolicy):
         if not assistant_text:
             return _PASSTHROUGH_RESPONSE
 
-        messages.append({"role": "assistant", "content": assistant_text})
+        if not user_text:
+            return _not_inspected(execution_ctx, "response", user_text_missing, req_params.response.passthrough_on_error)
+
+        messages = [
+            {"role": "user", "content": user_text},
+            {"role": "assistant", "content": assistant_text},
+        ]
 
         try:
             unsafe, category_codes = _call_nemoguard(

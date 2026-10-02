@@ -140,27 +140,41 @@ def request_context(payload: object | bytes | str | None = None, present: bool =
     return SimpleNamespace(body=SimpleNamespace(content=body, present=present))
 
 
+@dataclass(slots=True)
+class FakeResponseContext:
+    """Mirrors the body fields of apip_sdk_core's ResponseContext.
+
+    It is a slots dataclass like the SDK's, so reading a field the SDK does
+    not have (e.g. ``body``) raises AttributeError here too.
+    """
+
+    request_body: object | None = None
+    response_body: object | None = None
+
+
 def response_context(
     response_payload: object | bytes | None = None,
-    request_payload: object | None = None,
+    request_payload: object | bytes | None = None,
     response_present: bool = True,
 ):
     if response_payload is None:
-        res_body = SimpleNamespace(body=None)
-        return SimpleNamespace(body=None, request_body=None)
+        return FakeResponseContext()
     if isinstance(response_payload, bytes):
         res_bytes = response_payload
     else:
         res_bytes = json.dumps(response_payload).encode("utf-8")
     res_body = SimpleNamespace(content=res_bytes, present=response_present)
 
-    if request_payload is not None:
-        req_bytes = json.dumps(request_payload).encode("utf-8")
-        req_body = SimpleNamespace(content=req_bytes, present=True)
-    else:
+    if request_payload is None:
         req_body = None
+    else:
+        if isinstance(request_payload, bytes):
+            req_bytes = request_payload
+        else:
+            req_bytes = json.dumps(request_payload).encode("utf-8")
+        req_body = SimpleNamespace(content=req_bytes, present=True)
 
-    return SimpleNamespace(body=res_body, request_body=req_body)
+    return FakeResponseContext(request_body=req_body, response_body=res_body)
 
 
 class NemoGuardPolicyTest(unittest.TestCase):
@@ -575,6 +589,75 @@ class NemoGuardPolicyTest(unittest.TestCase):
         )
         self.assertIsNone(instance.on_response_body(None, ctx, {"response": {"enabled": True}}))
         self.assertIn("42", json.dumps(FakeRequests.post_calls[0]["json"]))
+
+    # --- response request context ---
+    # NeMo Guard rates a response against the user message that produced it, so
+    # a response whose request text cannot be resolved is not inspected.
+
+    def test_response_blocks_when_request_jsonpath_does_not_resolve(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe", response_safety="safe"))
+        instance = self._make_policy()
+        ctx = response_context(
+            response_payload={"choices": [{"message": {"content": "reply"}}]},
+            request_payload={"state": "TypeSafe state", "model": "jev-latest", "questions": {}},
+        )
+        result = instance.on_response_body(None, ctx, {"response": {"enabled": True}})
+        self.assert_not_inspected(result, "RESPONSE")
+        self.assertEqual([], FakeRequests.post_calls)
+
+    def test_response_passes_unresolved_request_with_passthrough_flag(self) -> None:
+        instance = self._make_policy()
+        ctx = response_context(
+            response_payload={"choices": [{"message": {"content": "reply"}}]},
+            request_payload={"state": "TypeSafe state"},
+        )
+        result = instance.on_response_body(
+            None, ctx, {"response": {"enabled": True, "passthroughOnError": True}}
+        )
+        self.assertIsNone(result)
+        self.assertEqual([], FakeRequests.post_calls)
+
+    def test_response_blocks_when_request_body_is_not_valid_json(self) -> None:
+        instance = self._make_policy()
+        ctx = response_context(
+            response_payload={"choices": [{"message": {"content": "reply"}}]},
+            request_payload=b"not json",
+        )
+        result = instance.on_response_body(None, ctx, {"response": {"enabled": True}})
+        self.assert_not_inspected(result, "RESPONSE")
+
+    def test_response_blocks_when_request_body_is_absent(self) -> None:
+        instance = self._make_policy()
+        ctx = response_context(response_payload={"choices": [{"message": {"content": "reply"}}]})
+        result = instance.on_response_body(None, ctx, {"response": {"enabled": True}})
+        self.assert_not_inspected(result, "RESPONSE")
+
+    def test_response_passes_empty_reply_without_request_context(self) -> None:
+        # An empty reply has nothing to check, whatever the request holds.
+        instance = self._make_policy()
+        ctx = response_context(response_payload={"choices": [{"message": {"content": ""}}]})
+        self.assertIsNone(instance.on_response_body(None, ctx, {"response": {"enabled": True}}))
+
+    def test_response_uses_request_jsonpath_for_context(self) -> None:
+        FakeRequests.reset(response=nemoguard_response("safe", response_safety="unsafe", categories="Violence"))
+        instance = self._make_policy()
+        ctx = response_context(
+            response_payload={"choices": [{"message": {"content": "violent reply"}}]},
+            request_payload={"state": {"subject": "Refund"}, "model": "jev-latest", "questions": {}},
+        )
+        result = instance.on_response_body(
+            None, ctx, {"request": {"jsonPath": "$.state"}, "response": {"enabled": True}}
+        )
+        self.assertIsInstance(result, ImmediateResponse)
+        self.assertEqual("RESPONSE", json.loads(result.body)["message"]["direction"])
+        prompt_content = FakeRequests.post_calls[0]["json"]["messages"][0]["content"]
+        self.assertIn("user: Refund", prompt_content)
+        self.assertIn("agent: violent reply", prompt_content)
+
+    def test_response_context_rejects_sdk_unknown_body_attribute(self) -> None:
+        # Guards the fixture itself: the SDK context has no `body` field.
+        with self.assertRaises(AttributeError):
+            _ = response_context({"choices": []}).body
 
     # --- response blocking ---
 

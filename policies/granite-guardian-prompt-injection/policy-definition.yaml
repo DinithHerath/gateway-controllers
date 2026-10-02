@@ -19,8 +19,9 @@ parameters:
         JSONPath expression used to extract the text to check from the request
         body. It may select a string, an object or an array, and a "*" segment
         fans out over an object's values or an array's items (for example
-        "$.questions.*.instructions"); every string inside the selection is
-        checked. A body that is not JSON, or a path that does not resolve, is
+        "$.questions.*.instructions"); every string, number and boolean inside
+        the selection is joined with newlines (object keys in sorted order)
+        and checked. A body that is not JSON, or a path that does not resolve, is
         rejected with a 422 unless passthroughOnError is true.
       default: "$.messages[-1].content"
     riskNames:
