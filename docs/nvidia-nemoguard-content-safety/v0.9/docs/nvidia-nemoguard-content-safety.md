@@ -23,8 +23,8 @@ Use this policy when you need to screen both the user input and the LLM output f
 - When checking responses, includes the original user message as conversation context for the model (required: a response whose request text cannot be resolved is not inspected)
 - Optional assessment details in the block response (detected safety category codes)
 - Fail-closed by default on inference service errors; configurable to fail-open
-- Passes through requests unchanged when the body is not JSON, the JSONPath target is missing, or the body is absent
-- Targets any string field in the JSON request or response body via configurable JSONPath expressions
+- Passes through requests and responses unchanged when the body is absent; rejects a non-JSON body or an unresolved JSONPath target with `422` unless `passthroughOnError` is `true`
+- Targets strings, objects or arrays (including `*` wildcards) in the JSON request or response body via configurable JSONPath expressions
 
 ## Configuration
 

@@ -19,8 +19,8 @@ Use this policy when you need to protect LLM-backed APIs against adversarial inp
 - Configurable block response status code (any valid HTTP error code in the 400–599 range)
 - Optional assessment details in the block response (risk name and model verdict)
 - Fail-closed by default on inference service errors; configurable to fail-open
-- Passes through requests unchanged when the body is not JSON, the JSONPath target is missing, or the body is absent
-- Targets any string field in the JSON request body via a configurable JSONPath expression
+- Passes through requests unchanged when the body is absent; rejects a non-JSON body or an unresolved JSONPath target with `422` unless `passthroughOnError` is `true`
+- Targets strings, objects or arrays (including `*` wildcards) in the JSON request body via a configurable JSONPath expression
 
 ## Configuration
 
